@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template for creating two DynamoDB tables, CourseList and SubscriberList
+
+Resources:
+  CourseListTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CourseList
+      AttributeDefinitions:
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: courseId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  FetchCourse:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FetchCourse
+      Code:
+        S3Bucket: lambda928913a
+        S3Key: fetchCourse.zip
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: arn:aws:iam::149157035801:role/LabRole
+  SendEmail:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: sendEmail
+      Code:
+        S3Bucket: lambda928913a
+        S3Key: sendEmail.zip
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: arn:aws:iam::149157035801:role/LabRole
+  CourseListTableStreamTrigger:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt CourseListTable.StreamArn
+      FunctionName: !Ref SendEmail
+      StartingPosition: TRIM_HORIZON
+      MaximumBatchingWindowInSeconds: 0
+  AddSubscriber:
+    Type: AWS::Lambda::Function
+    DependsOn: CourseListTable
+    Properties:
+      FunctionName: addSubscriber
+      Code:
+        S3Bucket: lambda928913a
+        S3Key: addSubscriber.zip
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: arn:aws:iam::149157035801:role/LabRole
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: termAssignmentApi
+  FetchCourseTestPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref FetchCourse
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*"
+  AddSubscriberTestPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref AddSubscriber
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*"
+  FetchCourseResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "fetchCourse"
+  FetchCourseOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref FetchCourseResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE'"
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+            ResponseTemplates:
+              "application/json": ""
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          "application/json": '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": true
+            "method.response.header.Access-Control-Allow-Methods": true
+            "method.response.header.Access-Control-Allow-Origin": true
+          ResponseModels:
+            "application/json": "Empty"
+  FetchCourseMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref FetchCourseResource
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FetchCourse.Arn}/invocations"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: $input.json('$')
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: $input.json('$')
+      RequestParameters:
+        method.request.querystring.name: false
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          StatusCode: "200"
+  AddSubscriberResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: "addSubscriberResource"
+  AddSubscriberOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref AddSubscriberResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE'"
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+            ResponseTemplates:
+              "application/json": ""
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          "application/json": '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": true
+            "method.response.header.Access-Control-Allow-Methods": true
+            "method.response.header.Access-Control-Allow-Origin": true
+          ResponseModels:
+            "application/json": "Empty"
+  AddSubscriberMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref AddSubscriberResource
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AddSubscriber.Arn}/invocations"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: $input.json('$')
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: $input.json('$')
+      RequestParameters:
+        method.request.querystring.name: false
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          StatusCode: "200"
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - FetchCourseMethod
+      - AddSubscriberMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref ApiGateway
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+      Description: Production Stage
+  FetchCourseApi:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: fetchCourseApi
+      Description: API for fetching courses.
+      SecretString: !Sub |
+        {
+          "api_key": "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}/fetchCourse"
+        }
+  AddSubscriberApi:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: addSubscriberApi
+      Description: API for adding subscriber.
+      SecretString: !Sub |
+        {
+          "api_key": "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}/addSubscriberResource"
+        }
+  TermAssignmentPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: TermAssignmentPair
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-053b0d53c279acc90
+      KeyName: !Ref TermAssignmentPair
+      SubnetId: subnet-0ac81a4f0ef66ab1f
+      SecurityGroupIds:
+        - sg-0a278b719cdcefeae
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -x
+          sudo apt-get update -y
+          sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update -y
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo usermod -a -G docker ubuntu
+          docker run -p 80:80 -d souravghai96/app

@@ -1,0 +1,9 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template for creating two DynamoDB tables, CourseList and SubscriberList
+
+Resources:
+  LambdaS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: lambda928913a
+      AccessControl: Private
